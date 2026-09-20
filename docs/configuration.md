@@ -525,7 +525,7 @@ Firstmate passes its profile line unless it states a reason to override, such as
 
 The resolver and bootstrap copy an environment-provided key into a non-exported private variable and unset `TYPESAFE_API_KEY` before launching child processes, so the secret is absent from child environments.
 The resolver sends the key to `curl` only as a header read from a file descriptor, never on argv, and nothing prints, logs, or writes it.
-The resolver fixes the endpoint at `https://api.typesafe.ai`, model at `jev-latest`, confidence floor at 0.6, and request timeout at 5 seconds; `TYPESAFE_API_KEY` and `TYPESAFE_API_PROVIDER` are its only resolver-specific environment settings.
+The resolver fixes the endpoint at `https://api.typesafe.ai` (or `https://openrouter.ai/api` under the [OpenRouter provider](#openrouter-provider)), model at `jev-latest`, confidence floor at 0.6, and request timeout at 5 seconds; `TYPESAFE_API_KEY` and `TYPESAFE_API_PROVIDER` are its only resolver-specific environment settings.
 The live rule-match evidence is recorded in [`verification/dispatch-resolve.md`](verification/dispatch-resolve.md).
 
 ### OpenRouter provider
@@ -534,7 +534,8 @@ Set `TYPESAFE_API_PROVIDER=openrouter` the same way `TYPESAFE_API_KEY` is read a
 Absent, or any other value, leaves the default typesafe.ai path entirely unchanged.
 On this path the bearer key never comes from `.env` or the environment: it is read only from the macOS Keychain service `openrouter-api-key` (`security find-generic-password -s openrouter-api-key -w`), with the same never-log, never-argv, file-descriptor-header discipline used for a direct `TYPESAFE_API_KEY`.
 A missing or empty Keychain entry is "off" the same way an absent `TYPESAFE_API_KEY` is: one `dispatch-resolve: off` line on stderr, exit 0, no network call.
-OpenRouter proxies typesafe.ai's own systemone API unchanged at `https://openrouter.ai/api/v1/systemone`, with the same `jev-latest` model value and an identical request and response shape, so selecting this provider changes only the base URL and the key source; request construction, response validation, and resolution are shared verbatim with the direct path.
+Bootstrap reads the same gate, so `TYPESAFE_API_PROVIDER=openrouter` with a present Keychain entry activates the typed-only `config/crew-dispatch.json` diagnostics at session start without any `TYPESAFE_API_KEY`.
+OpenRouter proxies typesafe.ai's own systemone API unchanged at `https://openrouter.ai/api/v1/systemone`, with the same `jev-latest` model value and the request and response shape the resolver validates (live evidence in [`verification/dispatch-resolve.md`](verification/dispatch-resolve.md)), so selecting this provider changes only the base URL and the key source; request construction, response validation, and resolution are shared verbatim with the direct path.
 
 ## Toolchain
 

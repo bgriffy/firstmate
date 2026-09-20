@@ -1222,6 +1222,27 @@ ROWS
   [ -z "$out" ] || fail "typed resolution should add verified Gemini crewmate routing, got: $out"
 
   rm -f "$case_dir/home/.env"
+  cat > "$fakebin/security" <<'SH'
+#!/usr/bin/env bash
+[ "$*" = 'find-generic-password -s openrouter-api-key -w' ] && [ -n "${FM_FAKE_KEYCHAIN_VALUE:-}" ] || exit 44
+printf '%s' "$FM_FAKE_KEYCHAIN_VALUE"
+SH
+  chmod +x "$fakebin/security"
+  printf '%s\n' '{"rules":[{"when":"bad floor","floor":{"scope":"all_models","min_percent":200,"provider":"claude"},"use":{"harness":"claude"}}]}' > "$case_dir/home/config/crew-dispatch.json"
+  printf '%s\n' 'TYPESAFE_API_PROVIDER=openrouter' > "$case_dir/home/.env"
+  out=$(PATH="$fakebin:$BASE_PATH" FM_HOME="$case_dir/home" FM_ROOT_OVERRIDE="$case_dir/home" \
+    FM_FAKE_TREEHOUSE_LEASE_HELP=1 "$ROOT/bin/fm-bootstrap.sh")
+  [ -z "$out" ] || fail "openrouter provider without a Keychain entry must leave typed validation off, got: $out"
+  out=$(PATH="$fakebin:$BASE_PATH" FM_HOME="$case_dir/home" FM_ROOT_OVERRIDE="$case_dir/home" \
+    FM_FAKE_KEYCHAIN_VALUE=or-test-key FM_FAKE_TREEHOUSE_LEASE_HELP=1 "$ROOT/bin/fm-bootstrap.sh")
+  assert_contains "$out" 'CREW_DISPATCH: invalid config/crew-dispatch.json' "openrouter provider with a Keychain entry activates typed validation"
+  assert_not_contains "$out" 'or-test-key' "bootstrap never prints the OpenRouter key"
+  out=$(PATH="$fakebin:$BASE_PATH" FM_HOME="$case_dir/home" FM_ROOT_OVERRIDE="$case_dir/home" \
+    TYPESAFE_API_KEY=test-key FM_FAKE_TREEHOUSE_LEASE_HELP=1 "$ROOT/bin/fm-bootstrap.sh")
+  [ -z "$out" ] || fail "a direct key must not activate typed validation under the openrouter provider, got: $out"
+
+  rm -f "$case_dir/home/.env" "$fakebin/security"
+  printf '%s\n' '{"rules":[{"when":"gemini work","use":{"harness":"gemini","model":"gemini-3.8-flash-high","provider":"google"}}]}' > "$case_dir/home/config/crew-dispatch.json"
   : > "$case_dir/child-env.log"
   out=$(PATH="$fakebin:$BASE_PATH" FM_HOME="$case_dir/home" FM_ROOT_OVERRIDE="$case_dir/home" \
     TYPESAFE_API_KEY=test-key FM_TEST_CHILD_ENV_LOG="$case_dir/child-env.log" \

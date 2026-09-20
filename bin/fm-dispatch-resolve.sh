@@ -91,7 +91,6 @@ CONFIDENCE_FLOOR=0.6
 TS_MODEL=jev-latest
 TS_BASE=https://api.typesafe.ai
 OPENROUTER_BASE=https://openrouter.ai/api
-OPENROUTER_KEYCHAIN_SERVICE=openrouter-api-key
 TS_TIMEOUT=5
 DEFAULT_WHEN="No listed rule applies to this task."
 
@@ -119,34 +118,17 @@ while [ $# -gt 0 ]; do
 done
 
 # ---- provider selection and opt-in gate -----------------------------------------
-TYPESAFE_API_PROVIDER=${TYPESAFE_API_PROVIDER:-}
-if [ -z "$TYPESAFE_API_PROVIDER" ]; then
-  TYPESAFE_API_PROVIDER=$(fmx_env_get TYPESAFE_API_PROVIDER "$FM_HOME/.env")
-fi
-
+TYPESAFE_API_PROVIDER=$(fm_typed_provider "$FM_HOME")
+TYPESAFE_API_KEY_PRIVATE=$(fm_typed_key "$TYPESAFE_API_PROVIDER" "$TYPESAFE_API_KEY_PRIVATE" "$FM_HOME")
 if [ "$TYPESAFE_API_PROVIDER" = openrouter ]; then
   TS_BASE=$OPENROUTER_BASE
-  OPENROUTER_KEY_PRIVATE=''
-  if command -v security >/dev/null 2>&1; then
-    OPENROUTER_KEY_PRIVATE=$(security find-generic-password -s "$OPENROUTER_KEYCHAIN_SERVICE" -w 2>/dev/null) || OPENROUTER_KEY_PRIVATE=''
-  fi
-  if [ -z "$OPENROUTER_KEY_PRIVATE" ]; then
-    echo "dispatch-resolve: off ($OPENROUTER_KEYCHAIN_SERVICE absent from the macOS Keychain)" >&2
+  if [ -z "$TYPESAFE_API_KEY_PRIVATE" ]; then
+    echo "dispatch-resolve: off ($FM_OPENROUTER_KEYCHAIN_SERVICE absent from the macOS Keychain)" >&2
     exit 0
   fi
-  # From here TYPESAFE_API_KEY_PRIVATE carries the OpenRouter bearer key
-  # instead of a direct typesafe.ai key; every downstream use of it (the
-  # curl header, the trap, never logging it) is unchanged.
-  TYPESAFE_API_KEY_PRIVATE=$OPENROUTER_KEY_PRIVATE
-  unset OPENROUTER_KEY_PRIVATE
-else
-  if [ -z "$TYPESAFE_API_KEY_PRIVATE" ]; then
-    TYPESAFE_API_KEY_PRIVATE=$(fmx_env_get TYPESAFE_API_KEY "$FM_HOME/.env")
-  fi
-  if [ -z "$TYPESAFE_API_KEY_PRIVATE" ]; then
-    echo "dispatch-resolve: off (TYPESAFE_API_KEY absent from the environment and $FM_HOME/.env)" >&2
-    exit 0
-  fi
+elif [ -z "$TYPESAFE_API_KEY_PRIVATE" ]; then
+  echo "dispatch-resolve: off (TYPESAFE_API_KEY absent from the environment and $FM_HOME/.env)" >&2
+  exit 0
 fi
 
 # ---- inputs --------------------------------------------------------------------

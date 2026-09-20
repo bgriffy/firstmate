@@ -29,3 +29,32 @@ fmx_env_get() {
   esac
   printf '%s' "$val"
 }
+
+# fm_typed_provider <home>
+# Print the typed dispatch resolution provider selector: TYPESAFE_API_PROVIDER
+# from the environment, else from <home>/.env. Empty means the direct
+# typesafe.ai path.
+fm_typed_provider() {
+  local provider=${TYPESAFE_API_PROVIDER:-}
+  [ -n "$provider" ] || provider=$(fmx_env_get TYPESAFE_API_PROVIDER "$1/.env")
+  printf '%s' "$provider"
+}
+
+# fm_typed_key <provider> <direct-key> <home>
+# Print the bearer key that turns typed dispatch resolution on, or nothing when
+# it is off. This is the single owner of that on/off gate, shared by
+# bin/fm-dispatch-resolve.sh and the bootstrap crew-dispatch diagnostic.
+# Provider "openrouter" reads only the macOS Keychain service
+# $FM_OPENROUTER_KEYCHAIN_SERVICE; any other provider uses <direct-key>, else a
+# TYPESAFE_API_KEY= line in <home>/.env.
+FM_OPENROUTER_KEYCHAIN_SERVICE=openrouter-api-key
+fm_typed_key() {
+  local provider=$1 key=$2 home=$3
+  if [ "$provider" = openrouter ]; then
+    command -v security >/dev/null 2>&1 || return 0
+    security find-generic-password -s "$FM_OPENROUTER_KEYCHAIN_SERVICE" -w 2>/dev/null || true
+    return 0
+  fi
+  [ -n "$key" ] || key=$(fmx_env_get TYPESAFE_API_KEY "$home/.env")
+  printf '%s' "$key"
+}
