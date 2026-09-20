@@ -124,6 +124,7 @@ Those Calm-hidden operational inputs remain ordinary user-role messages with unc
 The preference persists for the effective Firstmate home, and toggling it off restores ordinary rendering.
 [Calm's current behavior and supported limits](docs/calm.md) are separate from its [version-scoped maintainer evidence](docs/calm-mode-feasibility.md).
 Pi's `/supervision-model` command pins a cheaper model and a shallower reasoning effort for the supervision branch alone, from the eligible models and thinking levels Pi itself reports, and with no pin the branch normally follows your own conversation's model and effort; see the [configuration schema](docs/configuration.md#pi-supervision-branch-model-and-effort-configsupervision-branch-model-configsupervision-branch-effort).
+Pi's `/toggle-no-mistakes` command shows whether Firstmate always runs no-mistakes when a worker finishes, and lets you leave that on or switch it off so Firstmate instead reviews the finished diff, recommends whether to run it, and asks you; see [automatic no-mistakes validation](docs/configuration.md#automatic-no-mistakes-validation-configno-mistakes-auto).
 
 ### Talk to it
 

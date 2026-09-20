@@ -38,6 +38,15 @@
 # conflicting role is superseded rather than duplicated.
 # fm_ship_rule_one owns the mode-specific first ship safety rule shared by an
 # ordinary ship brief and the durable contract written during scout promotion.
+# fm_dod_block's optional third argument selects the no-mistakes contract a
+# worker receives: `auto` (the default, and the only contract before the
+# deferred decision existed) or `deferred`, which stops the worker at the
+# post-implementation run-or-skip decision point. This file owns only that
+# worker-facing text; bin/fm-validation-decision.sh owns the decision lifecycle,
+# and the shared key and contract spellings come from the library sourced below.
+
+# shellcheck source=bin/fm-validation-decision-lib.sh
+. "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/fm-validation-decision-lib.sh"
 
 fm_brief_worker_role() {  # <state-dir> <task-id>
   local state=$1 task_id=$2
@@ -240,38 +249,12 @@ fm_ask_user_escalation_block() {  # <data-dir> <task-id>
 EOF
 }
 
-fm_dod_block() {  # <mode> <task-id>
-  local mode=$1 id=$2
-  case "$mode" in
-    direct-PR)
-      cat <<EOF
-# Definition of done
-Delivery contract: mode=direct-PR
-This task ships **direct-PR**: you raise the PR yourself, without the no-mistakes pipeline.
-The task is complete only when committed on your branch.
-When it is implemented and committed, push your branch and open a PR with \`gh-axi\`, then append \`done [at=<epoch>]: PR {url}\` to the status file and stop.
-Do NOT run /no-mistakes. The configured merge authority decides whether to merge the PR; firstmate relays the outcome.
-EOF
-      ;;
-    local-only)
-      cat <<EOF
-# Definition of done
-Delivery contract: mode=local-only
-This task ships **local-only**: no remote, no PR, no pipeline.
-The task is complete only when committed on your branch \`fm/$id\`. Do NOT push, do NOT open a PR, do NOT merge.
-Keep your branch a clean fast-forward onto the current default branch - if \`main\` has advanced, rebase onto it so the eventual merge stays a fast-forward.
-When it is implemented and committed, append \`done [at=<epoch>]: ready in branch fm/$id\` to the status file and stop.
-The configured merge authority approves the ready branch, then firstmate merges it into local \`main\` through the guarded fast-forward path.
-EOF
-      ;;
-    no-mistakes)
-      cat <<EOF
-# Definition of done
-Delivery contract: mode=no-mistakes
-The task is complete only when committed on your branch.
-When you believe it is complete, append \`done [at=<epoch>]: {summary}\` to the status file and stop.
-Firstmate will then instruct you to run /no-mistakes to validate and ship a PR.
-
+# The no-mistakes driving guidance both no-mistakes contracts share. It applies
+# unchanged whether validation starts automatically or after a deferred
+# decision answered `run`, so it is rendered once here rather than kept in step
+# across two copies.
+fm_dod_no_mistakes_guidance() {
+  cat <<EOF
 You drive no-mistakes by responding to its gates, not by implementing fixes.
 Follow the guidance no-mistakes itself provides for the mechanics: it loads when you invoke /no-mistakes, and \`no-mistakes axi run --help\` plus the \`help\` lines in each \`axi\` response are authoritative and version-matched to the installed binary.
 When starting no-mistakes, pass \`--intent\` as only this brief's \`## Captain's intent\` subsection body, not its heading, plus any later words the captain actually said.
@@ -299,6 +282,70 @@ Two firstmate-specific rules layer on top of that guidance:
 
 After /no-mistakes reports CI green (the CI-ready return point - do not wait for it to keep monitoring in the background until merge), append \`done [at=<epoch>]: PR {url} checks green\` and stop. You are finished.
 EOF
+}
+
+fm_dod_block() {  # <mode> <task-id> [<validation: auto|deferred>]
+  local mode=$1 id=$2 validation=${3:-auto}
+  case "$validation" in
+    auto) ;;
+    deferred)
+      if [ "$mode" != no-mistakes ]; then
+        echo "error: fm_dod_block: validation=deferred applies only to mode=no-mistakes (got '$mode')" >&2
+        return 1
+      fi
+      ;;
+    *)
+      echo "error: fm_dod_block: unknown validation contract '$validation'" >&2
+      return 1 ;;
+  esac
+  case "$mode" in
+    direct-PR)
+      cat <<EOF
+# Definition of done
+Delivery contract: mode=direct-PR
+This task ships **direct-PR**: you raise the PR yourself, without the no-mistakes pipeline.
+The task is complete only when committed on your branch.
+When it is implemented and committed, push your branch and open a PR with \`gh-axi\`, then append \`done [at=<epoch>]: PR {url}\` to the status file and stop.
+Do NOT run /no-mistakes. The configured merge authority decides whether to merge the PR; firstmate relays the outcome.
+EOF
+      ;;
+    local-only)
+      cat <<EOF
+# Definition of done
+Delivery contract: mode=local-only
+This task ships **local-only**: no remote, no PR, no pipeline.
+The task is complete only when committed on your branch \`fm/$id\`. Do NOT push, do NOT open a PR, do NOT merge.
+Keep your branch a clean fast-forward onto the current default branch - if \`main\` has advanced, rebase onto it so the eventual merge stays a fast-forward.
+When it is implemented and committed, append \`done [at=<epoch>]: ready in branch fm/$id\` to the status file and stop.
+The configured merge authority approves the ready branch, then firstmate merges it into local \`main\` through the guarded fast-forward path.
+EOF
+      ;;
+    no-mistakes)
+      if [ "$validation" = deferred ]; then
+        cat <<EOF
+# Definition of done
+Delivery contract: mode=no-mistakes validation=deferred
+The task is complete only when committed on your branch.
+This task's validation is decided after implementation: once the committed diff has been reviewed, the captain chooses whether it runs no-mistakes or ships as a direct PR.
+When you believe it is complete, commit everything on your branch, then append \`needs-decision [at=<epoch>] [key=$FM_VALIDATION_DECISION_KEY]: implementation committed at {short sha}; run or skip no-mistakes\` to the status file and stop.
+Until firstmate's answer arrives in your instruction inbox, do NOT push, open a PR, start no-mistakes, or commit anything further: the decision covers exactly the diff you reported.
+That decision is never yours, and silence, elapsed time, or a restart is never an answer; if you are relaunched while it is still unanswered, do not report it again, just keep waiting.
+Firstmate answers with exactly one of two continuations:
+- run no-mistakes: firstmate then instructs you to run /no-mistakes to validate and ship a PR, and everything below applies.
+- skip no-mistakes: firstmate sends a direct-PR delivery contract that replaces everything below; follow it instead.
+
+EOF
+      else
+        cat <<EOF
+# Definition of done
+Delivery contract: mode=no-mistakes
+The task is complete only when committed on your branch.
+When you believe it is complete, append \`done [at=<epoch>]: {summary}\` to the status file and stop.
+Firstmate will then instruct you to run /no-mistakes to validate and ship a PR.
+
+EOF
+      fi
+      fm_dod_no_mistakes_guidance
       ;;
     *)
       echo "error: fm_dod_block: unknown delivery mode '$mode'" >&2

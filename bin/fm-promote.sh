@@ -24,7 +24,14 @@
 # read the scout's report (AGENTS.md section 7); data/projects.md holds the
 # captain's standing posture as context, and this script never looks it up.
 # no-mistakes-prod-only is a registry policy rather than a task mode and is refused.
-# Usage: fm-promote.sh <task-id> --mode <no-mistakes|direct-PR|local-only> --yolo <on|off>
+# A no-mistakes promotion resolves the validation contract exactly as
+# bin/fm-brief.sh does: this home's config/no-mistakes-auto preference, or the
+# optional per-task --validation <auto|deferred> override. A deferred promotion
+# renders the deferred Definition of done and records
+# `validation_decision=pending` beside the kind= flip, so a promoted worker
+# stops at the same durable run-or-skip decision point a briefed one does
+# (bin/fm-validation-decision.sh owns that lifecycle).
+# Usage: fm-promote.sh <task-id> --mode <no-mistakes|direct-PR|local-only> --yolo <on|off> [--validation <auto|deferred>]
 set -eu
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -32,6 +39,7 @@ FM_ROOT="${FM_ROOT_OVERRIDE:-$(cd "$SCRIPT_DIR/.." && pwd)}"
 FM_HOME="${FM_HOME:-${FM_ROOT_OVERRIDE:-$FM_ROOT}}"
 STATE="${FM_STATE_OVERRIDE:-$FM_HOME/state}"
 DATA="${FM_DATA_OVERRIDE:-$FM_HOME/data}"
+CONFIG="${FM_CONFIG_OVERRIDE:-$FM_HOME/config}"
 
 # shellcheck source=bin/fm-dod-lib.sh
 . "$SCRIPT_DIR/fm-dod-lib.sh"
@@ -54,6 +62,7 @@ MODE=
 YOLO=
 MODE_SET=0
 YOLO_SET=0
+VALIDATION=
 POS=()
 want_value=
 for a in "$@"; do
@@ -64,6 +73,7 @@ for a in "$@"; do
     case "$want_value" in
       mode) MODE=$a; MODE_SET=1 ;;
       yolo) YOLO=$a; YOLO_SET=1 ;;
+      validation) VALIDATION=$a ;;
     esac
     want_value=
     continue
@@ -73,11 +83,13 @@ for a in "$@"; do
     --mode=*) MODE=${a#--mode=}; MODE_SET=1 ;;
     --yolo) want_value=yolo ;;
     --yolo=*) YOLO=${a#--yolo=}; YOLO_SET=1 ;;
+    --validation) want_value=validation ;;
+    --validation=*) VALIDATION=${a#--validation=} ;;
     *) POS+=("$a") ;;
   esac
 done
 [ -z "$want_value" ] || { echo "error: --$want_value requires a value" >&2; exit 1; }
-[ "${#POS[@]}" -ge 1 ] || { echo "usage: fm-promote.sh <task-id> --mode <no-mistakes|direct-PR|local-only> --yolo <on|off>" >&2; exit 1; }
+[ "${#POS[@]}" -ge 1 ] || { echo "usage: fm-promote.sh <task-id> --mode <no-mistakes|direct-PR|local-only> --yolo <on|off> [--validation <auto|deferred>]" >&2; exit 1; }
 [ "$MODE_SET" -eq 1 ] || {
   echo "error: promotion requires --mode <no-mistakes|direct-PR|local-only>; decide it now from the scout's findings and the project's registered posture in data/projects.md" >&2
   exit 1
@@ -97,6 +109,7 @@ case "$YOLO" in
   on|off) ;;
   *) echo "error: --yolo must be on or off (got '$YOLO')" >&2; exit 1 ;;
 esac
+VALIDATION=$(fm_validation_resolve "$CONFIG" "$MODE" "$VALIDATION") || exit 1
 
 ID=${POS[0]}
 fm_task_id_creation_valid "$ID" || { echo "error: invalid task id" >&2; exit 2; }
@@ -205,7 +218,7 @@ EOF
     printf '%s\n' "$PROMOTION_ASK_USER_BLOCK"
   fi
   printf '\n'
-  fm_dod_block "$MODE" "$ID"
+  fm_dod_block "$MODE" "$ID" "$VALIDATION"
 }
 mkdir -p "$DATA/$ID"
 [ ! -d "$INSTRUCTIONS" ] || { echo "error: ship instructions path is a directory: $INSTRUCTIONS" >&2; exit 1; }
@@ -258,11 +271,12 @@ fi
 BRIEF_REPLACEMENT=
 
 TMP="$STATE/.$ID.meta.promote.${BASHPID:-$$}"
-grep -v -e '^kind=' -e '^mode=' -e '^yolo=' "$META" > "$TMP"
+grep -v -e '^kind=' -e '^mode=' -e '^yolo=' -e '^validation_' "$META" > "$TMP"
 {
   echo "kind=ship"
   echo "mode=$MODE"
   echo "yolo=$YOLO"
+  [ "$VALIDATION" != deferred ] || echo "validation_decision=pending"
 } >> "$TMP"
 if ! fm_backlog_atomic_transition publish "$TMP" "$META" "task record" "$STATE"; then
   rm -f -- "$TMP"
@@ -278,7 +292,11 @@ META_LOCK_HELD=0
 
 HOME_Q=$(printf '%q' "$FM_HOME")
 INSTRUCTIONS_Q=$(printf '%q' "$INSTRUCTIONS")
-echo "promoted $ID to ship mode=$MODE yolo=$YOLO (teardown protection restored)"
+if [ "$VALIDATION" = deferred ]; then
+  echo "promoted $ID to ship mode=$MODE yolo=$YOLO validation=deferred (teardown protection restored)"
+else
+  echo "promoted $ID to ship mode=$MODE yolo=$YOLO (teardown protection restored)"
+fi
 echo "wrote ship instructions for mode=$MODE: $INSTRUCTIONS"
 echo "next: FM_HOME=$HOME_Q bin/fm-send.sh fm-$ID \"\$(cat $INSTRUCTIONS_Q)\""
 

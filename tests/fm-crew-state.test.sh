@@ -2183,6 +2183,76 @@ test_no_run_idle_pane_uses_keyed_log() {
   pass "no run + idle pane parses keyed status syntax"
 }
 
+# (g'') no run + idle pane + a deferred validation decision in the task record
+# (bin/fm-validation-decision.sh). Once the captain-held transfer has closed the
+# decision's status key, the log has no state-bearing line left, so without the
+# task record an idle worker waiting on the captain would read as unknown.
+test_no_run_idle_pane_reads_a_pending_validation_decision() {
+  reset_fakes
+  local d out; d=$(new_case validation-pending)
+  make_repo_on_branch "$d/wt" fm/feat-vp
+  make_fakebin "$d" >/dev/null
+  fm_write_meta "$d/state/feat-vp.meta" "window=fm:fm-feat-vp" "worktree=$d/wt" "kind=ship" \
+    "harness=claude" "mode=no-mistakes" "validation_decision=pending"
+  printf 'needs-decision [key=validation-decision]: implementation committed at abc1234; run or skip no-mistakes\n' \
+    > "$d/state/feat-vp.status"
+  FM_FAKE_AXI_STATUS=""
+  FM_FAKE_BUSY=0
+  arm_idle_record "$d/state" feat-vp
+  out=$(run_crew_state "$d" feat-vp)
+  assert_contains "$out" "state: parked" "an open validation decision -> parked"
+  assert_contains "$out" "source: task-record" "a pending validation decision is read from the task record"
+
+  printf 'captain-held [key=validation-decision]: tracked by feat-vp\n' >> "$d/state/feat-vp.status"
+  out=$(run_crew_state "$d" feat-vp)
+  assert_contains "$out" "state: parked" "a transferred validation decision must still read parked"
+  assert_contains "$out" "source: task-record" "a transferred validation decision is read from the task record"
+  assert_contains "$out" "awaiting the captain" "the detail did not say who owes the answer"
+  pass "no run + idle pane reads a pending validation decision from the task record"
+}
+
+# Pending alone says only that nobody has decided: a worker that never reported
+# its decision point is idle for some other reason, which the log still owns.
+test_no_run_idle_pane_pending_validation_without_a_report_uses_log() {
+  reset_fakes
+  local d out; d=$(new_case validation-unreported)
+  make_repo_on_branch "$d/wt" fm/feat-vu
+  make_fakebin "$d" >/dev/null
+  fm_write_meta "$d/state/feat-vu.meta" "window=fm:fm-feat-vu" "worktree=$d/wt" "kind=ship" \
+    "harness=claude" "mode=no-mistakes" "validation_decision=pending"
+  printf 'blocked: the build tool is missing\n' > "$d/state/feat-vu.status"
+  FM_FAKE_AXI_STATUS=""
+  FM_FAKE_BUSY=0
+  arm_idle_record "$d/state" feat-vu
+  out=$(run_crew_state "$d" feat-vu)
+  assert_contains "$out" "state: blocked" "an unreported pending decision must not mask a blocker"
+  assert_contains "$out" "source: status-log" "an unreported pending decision leaves the log authoritative"
+  pass "a pending validation decision the worker never reported leaves the status log authoritative"
+}
+
+# A recorded `run` with no attributed run is validation that has not started,
+# unless the worker has since declared a terminal result.
+test_no_run_idle_pane_reads_a_recorded_run_decision() {
+  reset_fakes
+  local d out; d=$(new_case validation-run)
+  make_repo_on_branch "$d/wt" fm/feat-vr
+  make_fakebin "$d" >/dev/null
+  fm_write_meta "$d/state/feat-vr.meta" "window=fm:fm-feat-vr" "worktree=$d/wt" "kind=ship" \
+    "harness=claude" "mode=no-mistakes" "validation_decision=run"
+  printf 'captain-held [key=validation-decision]: tracked by feat-vr\n' > "$d/state/feat-vr.status"
+  FM_FAKE_AXI_STATUS=""
+  FM_FAKE_BUSY=0
+  arm_idle_record "$d/state" feat-vr
+  out=$(run_crew_state "$d" feat-vr)
+  assert_contains "$out" "state: parked" "a run decision with no run yet -> parked"
+  assert_contains "$out" "no no-mistakes run is attributed" "the detail did not say validation has not started"
+
+  printf 'done: PR https://example.test/pull/7 checks green\n' >> "$d/state/feat-vr.status"
+  out=$(run_crew_state "$d" feat-vr)
+  assert_contains "$out" "state: done" "a terminal declaration must answer over a recorded run decision"
+  pass "a recorded run decision reads as validation not yet started until the worker declares a result"
+}
+
 # (g') no run + idle pane on a DECLARED external-wait pause -> state: paused, so a
 # supervisor reading the crew sees a distinct pause (and its reason) rather than a
 # wedge-suspect idle. This is the reader half the watcher/daemon build on.
@@ -4745,6 +4815,9 @@ test_no_run_herdr_idle_agent_status_outranked_by_record
 test_no_run_herdr_idle_agent_status_and_idle_record_stays_idle
 test_no_run_idle_pane_uses_log
 test_no_run_idle_pane_uses_keyed_log
+test_no_run_idle_pane_reads_a_pending_validation_decision
+test_no_run_idle_pane_pending_validation_without_a_report_uses_log
+test_no_run_idle_pane_reads_a_recorded_run_decision
 test_no_run_idle_pane_paused
 test_no_run_idle_pane_custom_paused_verb
 test_no_run_idle_secondmate_resolved_event_not_state

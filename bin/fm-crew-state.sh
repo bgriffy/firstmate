@@ -22,7 +22,7 @@
 # Output is one stable, parseable, token-tight line firstmate can read every
 # heartbeat:
 #
-#   state: <working|parked|done|blocked|paused|failed|unknown> · source: <run-step|pane|status-log|remote-endpoint|none> · <detail>
+#   state: <working|parked|done|blocked|paused|failed|unknown> · source: <run-step|pane|status-log|task-record|remote-endpoint|none> · <detail>
 #
 # Logic, in order:
 #   1. Resolve worktree + backend target + kind from state/<id>.meta. A meta
@@ -132,6 +132,15 @@
 #      backend's pane busy state, then the resolved status declaration
 #      when its verb maps to a recognized run-state. Decision-only events such as
 #      `resolved` never become current state or detail.
+#      Before that declaration answers, an idle ship task whose record carries
+#      a deferred validation decision (bin/fm-validation-decision.sh) reads
+#      `parked · task-record`: a pending decision whose decision point the
+#      worker has reported - still open in the log, or already transferred to
+#      the captain's hold, which leaves no state-bearing log line behind - and
+#      a recorded `run` that no no-mistakes run is attributed to yet. A terminal,
+#      blocked, or paused declaration still answers for the `run` case, and a
+#      pending task whose worker never reported its decision point falls
+#      through unchanged, because pending alone says only that nobody decided.
 #   5. Missing meta or torn-down worktree: report unknown · none. If no run is
 #      attributed to this crew, a dead endpoint also reports unknown · none rather
 #      than trusting a stale status log. On tmux and herdr, which own a
@@ -165,6 +174,8 @@ STATE="${FM_STATE_OVERRIDE:-$FM_HOME/state}"
 . "$SCRIPT_DIR/fm-pr-lib.sh"
 # shellcheck source=bin/fm-timeout-lib.sh
 . "$SCRIPT_DIR/fm-timeout-lib.sh"
+# shellcheck source=bin/fm-validation-decision-lib.sh
+. "$SCRIPT_DIR/fm-validation-decision-lib.sh"
 
 ID=${1:-}
 [ -n "$ID" ] || { echo "usage: fm-crew-state.sh <id>" >&2; exit 2; }
@@ -1205,6 +1216,26 @@ if [ "$KIND" != secondmate ]; then
     busy) emit working pane "harness busy (${BUSY_VERDICT#* })" ;;
     idle) ;;
     *) emit unknown pane "harness state unavailable ($BUSY_VERDICT)" ;;
+  esac
+fi
+
+# A deferred validation decision is current state the status log cannot carry
+# once the captain-held transfer has closed its key (step 4 above owns the rule).
+if [ "$KIND" = ship ]; then
+  case "$(fm_validation_meta_decision "$META")" in
+    pending)
+      case "$(status_key_closing_verb "$LOG" "$FM_VALIDATION_DECISION_KEY")" in
+        needs-decision|"${FM_CLASSIFY_CAPTAIN_HELD_VERB:-$FM_CLASSIFY_CAPTAIN_HELD_VERB_DEFAULT}")
+          emit parked task-record "validation decision pending: awaiting the captain's run-or-skip no-mistakes answer"
+          ;;
+      esac
+      ;;
+    run)
+      case "$(map_log_state "$LOG_LINE")" in
+        "done"|failed|blocked|paused) ;;
+        *) emit parked task-record "validation decision: run${SEP}no no-mistakes run is attributed to this task yet" ;;
+      esac
+      ;;
   esac
 fi
 

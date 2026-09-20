@@ -297,6 +297,8 @@ SUB_HOME_PARENT_MARKER=".fm-secondmate-parent"
 . "$SCRIPT_DIR/fm-pending-reply-lib.sh"
 # shellcheck source=bin/fm-nm-run-lib.sh
 . "$SCRIPT_DIR/fm-nm-run-lib.sh"
+# shellcheck source=bin/fm-validation-decision-lib.sh
+. "$SCRIPT_DIR/fm-validation-decision-lib.sh"
 if [ "$#" -lt 1 ] || ! fm_task_id_path_safe "$1"; then
   echo "error: invalid teardown request" >&2
   exit 2
@@ -1718,6 +1720,17 @@ validate_worktree_teardown_safety() {
   case "$KIND" in
     secondmate|scout) return 0 ;;
   esac
+
+  # A deferred validation decision the captain has not answered means this work
+  # has been neither validated nor shipped. The landed-work test below would
+  # refuse its unpushed commits anyway; naming the real state keeps the refusal
+  # from reading as a push that was merely forgotten
+  # (bin/fm-validation-decision.sh owns the decision).
+  if [ "$(fm_validation_meta_decision "$META")" = pending ]; then
+    echo "REFUSED: task $ID's run-or-skip no-mistakes decision is still pending, so its work is neither validated nor shipped." >&2
+    echo "Record the captain's answer with bin/fm-validation-decision.sh answer $ID <run|skip> --decision-file <path> and let the work land, or get the captain's explicit OK to discard, then --force." >&2
+    return 1
+  fi
 
   if ! dirty_raw=$(git -C "$WT" status --porcelain 2>/dev/null); then
     if worktree_safety_blocked_by_lock "uncommitted changes"; then
