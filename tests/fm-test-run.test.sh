@@ -107,6 +107,7 @@ init_changed_fixture_repo() {
     fm-harness-adapter-references.test.sh \
     fm-backend-herdr-smoke.test.sh \
     fm-secondmate-safety.test.sh \
+    fm-bootstrap.test.sh \
     fm-session-start.test.sh \
     fm-afk-pi-herdr-return-e2e.test.sh \
     fm-backend.test.sh \
@@ -128,6 +129,7 @@ init_changed_fixture_repo() {
   : >"$repo/tests/fm-backend-herdr-eventwait.test.py"
   : >"$repo/bin/fm-supervisor-target-lib.sh"
   : >"$repo/bin/fm-control-lib.sh"
+  : >"$repo/bin/fm-env-lib.sh"
   : >"$repo/bin/fm-timeout-lib.sh"
   : >"$repo/bin/fm-procevent-quota.sh"
   : >"$repo/bin/fm-quota-axi-lib.sh"
@@ -393,6 +395,15 @@ test_changed_dependency_selection_and_unmapped_failure() {
     "shared quota validator selects chooser coverage"
   git -C "$repo" add bin/fm-quota-axi-lib.sh
   git -C "$repo" -c user.name=test -c user.email=test@example.invalid commit -qm quota-validator-change
+
+  printf '\n' >>"$repo/bin/fm-env-lib.sh"
+  listed=$(cd "$repo" && bin/fm-test-run.sh --list --changed --base HEAD)
+  assert_contains "$listed" "tests/fm-bootstrap.test.sh" \
+    "environment library selects bootstrap coverage"
+  assert_contains "$listed" "tests/fm-session-start.test.sh" \
+    "environment library selects the complete session-bootstrap family"
+  git -C "$repo" add bin/fm-env-lib.sh
+  git -C "$repo" -c user.name=test -c user.email=test@example.invalid commit -qm environment-library-change
 
   printf '\n' >>"$repo/bin/fm-control-lib.sh"
   listed=$(cd "$repo" && bin/fm-test-run.sh --list --changed --base HEAD)
