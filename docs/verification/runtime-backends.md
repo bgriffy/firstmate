@@ -2033,6 +2033,24 @@ Every record read in those regressions ultimately goes through the real `bin/fm-
 Against the installed 0.81.1 package the typecheck reports a pre-existing `ModelsRefreshOptions.providers` mismatch in the branch's provider-registration path that this change does not touch; the option exists from the 0.84 line on, which is why the typecheck evidence uses the newer package as the earlier entries do.
 The real Pi/Herdr return guard (`FM_AFK_PI_HERDR_E2E=1 tests/fm-afk-pi-herdr-return-e2e.test.sh`) remains the owner of the live return-brief proof; it loads no supervision extension into its synthetic primary and does not yet exercise the parked-main scenario, which is a follow-up for a Herdr-lab-guarded task.
 
+## Pi /toggle-no-mistakes command
+
+The command extension (`.pi/extensions/fm-toggle-no-mistakes.ts`, [configuration](../configuration.md#automatic-no-mistakes-validation-configno-mistakes-auto)) depends on four Pi extension surfaces: `registerCommand`, the generic `ctx.ui.select` dialog, `ctx.hasUI`, and `sendMessage` with `nextTurn` delivery.
+It imports only types from the Pi package, so a removed surface shows up as a strict typecheck failure or a failed dialog rather than a load error.
+
+Evidence produced 2026-09-20 on macOS 26.6.2 arm64, Node v26.7.0, against the globally installed `@earendil-works/pi-coding-agent` 0.86.1:
+
+- Command behavior: `bin/fm-test-run.sh tests/fm-pi-toggle-no-mistakes.test.sh` printed `ok - /toggle-no-mistakes shows the current value and offers to leave it or switch it`, `ok - /toggle-no-mistakes persists a switch in the active home, in both directions`, `ok - /toggle-no-mistakes changes nothing when the dialog is dismissed or cannot be shown`, and `ok - /toggle-no-mistakes reports an unreadable or inherited preference without claiming a change`.
+  That suite loads the tracked extension through its default-exported factory and runs the real `bin/fm-validation-decision.sh` against an isolated home, so the dialog and the stored value are proven to agree.
+- Strict typecheck: `tests/fm-pi-primary-types.test.sh`, run with TypeScript 5.9.3 on `PATH`, printed `ok - tracked Pi extensions pass strict no-emit typecheck against Pi 0.86.1` with the command extension and its choices library included.
+- Real TUI: `pi --no-builtin-tools` was started in a dedicated tmux server with `FM_HOME` pointing at an empty scratch home.
+  Typing `/toggle-no-mistakes` offered `toggle-no-mistakes  [p] Show whether Firstmate always runs no-mistakes, and leave it or switch it.` as a project command, and submitting it rendered Pi's selector titled `Automatic no-mistakes is ON - always run no-mistakes when a crewmate finishes` with exactly the rows `Leave it ON` and `Turn it OFF - ask me after the changes are made whether to run no-mistakes`.
+  Choosing the second row printed `Automatic no-mistakes is now OFF:` followed by the explanation, and left `config/no-mistakes-auto` in that scratch home holding `off` with mode `600` and no staging file beside it.
+  Reopening the command showed `Automatic no-mistakes is OFF` with the rows `Leave it OFF` and `Turn it ON - always run no-mistakes when a crewmate finishes`, and Escape printed `Automatic no-mistakes stays OFF.` with the file unchanged.
+- Extension load: `echo "" | pi -p "ok"` from the repository root completed with no extension-load error; its only warning was an unrelated user-level model pattern.
+
+Refresh this record with the first two commands after a Pi upgrade; the real-TUI pass needs no credentials because the command never starts a model turn.
+
 ## Native Codex through Pi
 
 Verified on 2026-09-08 with Pi 0.85.1 and the installed `pi-codex-native` 0.2.1 adapter.

@@ -487,6 +487,45 @@ test_relaunch_preserves_durable_task_metadata() {
   pass "fm-control relaunch: durable task metadata survives replacement launch publication"
 }
 
+# A deferred validation decision (bin/fm-validation-decision.sh) must survive a
+# replacement launch in whichever state it was left. A pending decision stays
+# pending rather than being re-opened or dropped, and a task the captain
+# switched to direct-PR relaunches on that decided contract: its brief still
+# carries the original deferred contract line above the superseding one, so
+# only the brief's LAST contract line may be compared with the recorded mode.
+test_relaunch_preserves_a_validation_decision() {
+  local dir out rc
+  dir=$(new_case validation-pending rl31)
+  add_ship_task "$dir" rl31 claude
+  printf '\n# Definition of done\nDelivery contract: mode=no-mistakes validation=deferred\n' \
+    >> "$dir/home/data/rl31/brief.md"
+  printf '%s\n' 'validation_decision=pending' >> "$dir/home/state/rl31.meta"
+  out=$(run_control "$dir" rl31 relaunch --note "still waiting on the validation decision"); rc=$?
+  expect_code 0 "$rc" "a relaunch must not disturb a pending validation decision"$'\n'"$out"
+  [ "$(meta_field "$dir" rl31 validation_decision)" = pending ] \
+    || fail "a pending validation decision must survive relaunch as pending"
+  [ "$(grep -c '^validation_decision=' "$dir/home/state/rl31.meta")" = 1 ] \
+    || fail "a relaunch duplicated the validation decision record"
+
+  dir=$(new_case validation-skipped rl32)
+  add_ship_task "$dir" rl32 claude
+  {
+    printf '\n# Definition of done\nDelivery contract: mode=no-mistakes validation=deferred\n'
+    printf '\n# Current validation decision contract\n# Definition of done\nDelivery contract: mode=direct-PR\n'
+  } >> "$dir/home/data/rl32/brief.md"
+  {
+    grep -v '^mode=' "$dir/home/state/rl32.meta"
+    printf '%s\n' 'mode=direct-PR' 'validation_decision=skip' 'validation_answer_sent=1'
+  } > "$dir/home/state/rl32.meta.new"
+  mv "$dir/home/state/rl32.meta.new" "$dir/home/state/rl32.meta"
+  out=$(run_control "$dir" rl32 relaunch --note "opening the direct PR"); rc=$?
+  expect_code 0 "$rc" "a task switched to direct-PR must relaunch on its decided contract"$'\n'"$out"
+  assert_not_contains "$out" "delivery mismatch" "the superseded deferred contract line was read as the current one"
+  [ "$(meta_field "$dir" rl32 mode)" = direct-PR ] || fail "the decided delivery mode must survive relaunch"
+  [ "$(meta_field "$dir" rl32 validation_decision)" = skip ] || fail "the recorded skip must survive relaunch"
+  pass "fm-control relaunch: a pending or answered validation decision survives replacement launch"
+}
+
 test_relaunch_serializes_concurrent_durable_metadata_publication() {
   local dir control_pid link_pid rc i=0 traceparent prepare launch_release waiting ready release
   dir=$(new_case metadata-race rl28)
@@ -2202,6 +2241,7 @@ test_relaunch_refuses_before_exit_when_the_composer_holds_pending_text
 test_relaunch_refuses_before_exit_when_the_composer_state_is_unproven
 test_relaunch_from_linked_home_preserves_recorded_worktree
 test_relaunch_preserves_durable_task_metadata
+test_relaunch_preserves_a_validation_decision
 test_relaunch_serializes_concurrent_durable_metadata_publication
 test_disabled_relaunch_clears_prior_trace_context
 test_relaunch_appends_the_progress_note_to_the_instructions
