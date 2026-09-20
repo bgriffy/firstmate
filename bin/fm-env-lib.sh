@@ -9,6 +9,8 @@
 # (bin/fm-mail.sh loads its whole .env block itself under the same env-wins
 # contract.) The value is printed to the caller's command substitution only;
 # nothing is logged.
+# It also owns the typed dispatch resolution on/off gate (fm_typed_provider,
+# fm_typed_key below), shared by the resolver and bootstrap.
 
 # fmx_env_get <key> <file>
 # Read the value of KEY from a .env-style file: last assignment wins; tolerates a

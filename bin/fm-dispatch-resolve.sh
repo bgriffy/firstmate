@@ -30,7 +30,7 @@
 #   validation, and everything after are shared verbatim by both providers.
 #
 # What it does when on with at least one rule: one POST to
-#   https://api.typesafe.ai/v1/systemone with the project name and the whole brief as
+#   https://api.typesafe.ai/v1/systemone (or the OpenRouter base above) with the project name and the whole brief as
 #   state and ONE Choice question whose
 #   options are every rule's `when` from config/crew-dispatch.json plus one
 #   fixed generic none option. Jev returns the matched rule, a probability per
