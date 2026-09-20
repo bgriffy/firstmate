@@ -15,6 +15,23 @@ Observed error shapes: 401 `authentication_error` for a bad key, 403 when the he
 No rate-limit headers were present on any response; every response carried `x-typesafe-request-id`.
 Observed end-to-end latency from a Mac was 123 to 348 ms per request, with the server's own upstream time at 4 to 60 ms.
 
+### The OpenRouter route
+
+Verified 2026-09-20 against `https://openrouter.ai/api`, with the bearer key read from the macOS Keychain service `openrouter-api-key` inside the one command and passed to `curl` as a header on file descriptor 3, never printed.
+
+```console
+$ printf '%s' '{"model":"jev-latest","state":{"task":{"project":"demo","brief":"Fix a typo in the README heading."}},"questions":{"rule":{"type":"choice","instructions":"Which ONE dispatch rule best fits `task`?","criteria":{"rule_1":"A small documentation or typo fix.","default":"No listed rule applies to this task."}}}}' \
+    | curl -sS -X POST https://openrouter.ai/api/v1/systemone -H 'Content-Type: application/json' \
+        -H @/dev/fd/3 3< <(printf 'Authorization: Bearer %s\n' "<redacted: security find-generic-password -s openrouter-api-key -w>") --data-binary @-
+{"model":"typesafe/jev-1.13-20260917","answers":{"rule":{"type":"choice","choice":"rule_1","probabilities":{"rule_1":1,"default":0},"confidence":1}},"usage":{"input_tokens":353,"output_tokens":35,"cost":0.000014826},"id":"gen-dec-1789890944-hZbK470oyfJdSxdAs3Nj","provider":"TypeSafe"}
+```
+
+That call answered HTTP 200 in 304 ms with `x-provider-name: TypeSafe` and an `x-generation-id` header.
+The bare `jev-latest` model value is accepted and answers as `typesafe/jev-1.13-20260917`.
+`answers.rule` carries the same `{choice, probabilities, confidence}` the direct API returns, with one probability per criteria key summing to 1, and `usage` carries numeric `input_tokens` and `output_tokens`; OpenRouter adds `usage.cost`, `id`, and `provider`, which the resolver ignores.
+An unauthenticated POST to the same path answered 401, and a POST to a nonexistent sibling path answered 404.
+The same day, `TYPESAFE_API_PROVIDER=openrouter bin/fm-dispatch-resolve.sh` with no `TYPESAFE_API_KEY`, a one-rule file, and that brief passed the resolver's response validation end to end and reported `rule: rule_1` at confidence 1 from model `typesafe/jev-1.13-20260917`.
+
 ## Live rule match against real briefs
 
 Run 2026-09-16 with the key injected for the one command through the vault (`av inject +TYPESAFE_API_KEY -- ...`), model `jev-latest`, confidence floor 0.6, timeout 5 s, one `quota-axi --json` snapshot for the whole run.
@@ -61,9 +78,10 @@ It proves the absent key (environment and `.env`) prints one stderr line, nothin
 It proves absent, default-only, and empty-rules files return `no rules to match` without a model or quota request, while a broken rules-file symlink exits 2 as unreadable.
 It proves the documented starter configuration resolves its Pi default through the declared Claude provider, a `.env` key turns the tool on, and the environment wins over it.
 It proves the key is absent from child environments, never appears on `curl` argv, and arrives only as the bearer header on the descriptor.
+It proves `TYPESAFE_API_PROVIDER=openrouter` is off with one stderr line and no `curl` or `quota-axi` call when the `openrouter-api-key` Keychain entry or the `security` tool is absent, even with a direct `TYPESAFE_API_KEY` set; with the entry present it changes only the base URL, keeps `jev-latest` and the shared resolution, and holds the same argv, descriptor, and child-environment key discipline; any other provider value keeps the direct endpoint.
 It proves the request uses the fixed endpoint and model, carries only the project, brief, and rule Choice with one option per rule plus the fixed neutral none option, and never carries `why`, `use`, or quota.
 It proves the clear, fixed-floor ambiguous with candidate evidence, escalate (approval with candidate evidence, unverifiable rule floor, tie, nothing rankable), known rule-floor fall-through, known and unverifiable profile-floor evidence, explicit-provider and provider-ID enforcement, authoritative Agy and explicit-provider Gemini routing, partial providers, eligible unranked candidates and their clear-result note, concrete quota vetoes and profile-floor shortfalls taking precedence over uncertainty, account-wide quota veto, limiting-bound ranking, missing-curl and quota-axi failures, HTTP 429 and 500, transport failure, malformed usage, zero-mass or malformed probabilities or confidence, malformed or duplicate profile, invalid selector, removed-option rejection, and out-of-range rule ID paths behave as the contract states, with configuration errors exiting 2 before any network call.
-`tests/fm-bootstrap.test.sh` proves bootstrap ignores resolver-only fields without the typed key, validates each malformed shape when the environment or home `.env` activates typed resolution, and prevents an environment-provided key from reaching child processes.
+`tests/fm-bootstrap.test.sh` proves bootstrap ignores resolver-only fields without the typed key, validates each malformed shape when the environment, home `.env`, or the OpenRouter provider with a present Keychain entry activates typed resolution, stays inert when that Keychain entry is absent, and prevents an environment-provided key from reaching child processes.
 
 ```console
 $ bash tests/fm-dispatch-resolve.test.sh | tail -1

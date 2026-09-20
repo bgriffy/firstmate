@@ -13,8 +13,24 @@
 #   The key lives in one shell variable and reaches curl as a header read from
 #   a file descriptor, never on argv; nothing logs or writes it.
 #
+# OpenRouter provider (additional opt-in path, off by default): set
+#   TYPESAFE_API_PROVIDER=openrouter the same way TYPESAFE_API_KEY is read
+#   (environment first, else a TYPESAFE_API_PROVIDER= line in $FM_HOME/.env).
+#   Absent, or any other value, leaves the direct typesafe.ai path above
+#   byte-for-byte unchanged. When selected, the bearer key comes only from
+#   the macOS Keychain service "openrouter-api-key"
+#   (`security find-generic-password -s openrouter-api-key -w`), never from
+#   .env or the environment; a missing or empty Keychain entry is "off" the
+#   same way an absent TYPESAFE_API_KEY is, with the same security discipline
+#   (one unexported shell variable, header read from a file descriptor, never
+#   logged). OpenRouter proxies typesafe.ai's own systemone API unchanged at
+#   https://openrouter.ai/api/v1/systemone, with the same jev-latest model
+#   value and an identical request/response shape, so only the base URL and
+#   the key source branch on this setting; request construction, response
+#   validation, and everything after are shared verbatim by both providers.
+#
 # What it does when on with at least one rule: one POST to
-#   https://api.typesafe.ai/v1/systemone with the project name and the whole brief as
+#   https://api.typesafe.ai/v1/systemone (or the OpenRouter base above) with the project name and the whole brief as
 #   state and ONE Choice question whose
 #   options are every rule's `when` from config/crew-dispatch.json plus one
 #   fixed generic none option. Jev returns the matched rule, a probability per
@@ -44,7 +60,9 @@
 #   actionable, never selected around.
 #
 # Environment:
-#   TYPESAFE_API_KEY is the only resolver-specific environment setting.
+#   TYPESAFE_API_KEY and TYPESAFE_API_PROVIDER are the only resolver-specific
+#   environment settings; the OpenRouter bearer key itself is never an
+#   environment or .env setting, only the macOS Keychain service above.
 #
 # Authority: this tool never replaces firstmate's judgment, quota-array-dispatch,
 #   the captain-approval gate, or fm-spawn.sh validation; it publishes one
@@ -72,6 +90,7 @@ CONFIG="${FM_CONFIG_OVERRIDE:-$FM_HOME/config}"
 CONFIDENCE_FLOOR=0.6
 TS_MODEL=jev-latest
 TS_BASE=https://api.typesafe.ai
+OPENROUTER_BASE=https://openrouter.ai/api
 TS_TIMEOUT=5
 DEFAULT_WHEN="No listed rule applies to this task."
 
@@ -98,11 +117,16 @@ while [ $# -gt 0 ]; do
   esac
 done
 
-# ---- opt-in gate ---------------------------------------------------------------
-if [ -z "$TYPESAFE_API_KEY_PRIVATE" ]; then
-  TYPESAFE_API_KEY_PRIVATE=$(fmx_env_get TYPESAFE_API_KEY "$FM_HOME/.env")
-fi
-if [ -z "$TYPESAFE_API_KEY_PRIVATE" ]; then
+# ---- provider selection and opt-in gate -----------------------------------------
+TYPESAFE_API_PROVIDER=$(fm_typed_provider "$FM_HOME")
+TYPESAFE_API_KEY_PRIVATE=$(fm_typed_key "$TYPESAFE_API_PROVIDER" "$TYPESAFE_API_KEY_PRIVATE" "$FM_HOME")
+if [ "$TYPESAFE_API_PROVIDER" = openrouter ]; then
+  TS_BASE=$OPENROUTER_BASE
+  if [ -z "$TYPESAFE_API_KEY_PRIVATE" ]; then
+    echo "dispatch-resolve: off ($FM_OPENROUTER_KEYCHAIN_SERVICE absent from the macOS Keychain)" >&2
+    exit 0
+  fi
+elif [ -z "$TYPESAFE_API_KEY_PRIVATE" ]; then
   echo "dispatch-resolve: off (TYPESAFE_API_KEY absent from the environment and $FM_HOME/.env)" >&2
   exit 0
 fi
