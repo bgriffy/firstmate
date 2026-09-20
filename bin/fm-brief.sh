@@ -14,7 +14,7 @@
 # charters still use a single `{TASK}` charter fill. Firstmate may adjust other
 # sections when the task genuinely deviates (e.g. working an existing external
 # PR instead of shipping a new one).
-# Usage: fm-brief.sh <task-id> <repo-name> --mode <no-mistakes|direct-PR|local-only> [--herdr-lab]
+# Usage: fm-brief.sh <task-id> <repo-name> --mode <no-mistakes|direct-PR|local-only> [--validation <auto|deferred>] [--herdr-lab]
 #        fm-brief.sh <task-id> <repo-name> --scout [--herdr-lab]
 #        fm-brief.sh <task-id> --secondmate {<project>...|--no-projects}
 #   --scout writes the scout contract instead: the deliverable is a report at
@@ -47,6 +47,15 @@
 #                the configured merge authority approves, firstmate merges to local main
 # no-mistakes-prod-only is a registry policy, not a task mode; resolve it to one of
 # the three concrete modes at intake before calling this script.
+# A no-mistakes brief also resolves whether validation starts automatically or
+# is deferred to the captain after implementation. Unlike the mode, that is this
+# home's standing preference (config/no-mistakes-auto, absent = automatic), so
+# the scaffold reads it rather than relying on the caller to remember it, and
+# refuses a preference it cannot read. --validation <auto|deferred> is the
+# per-task override for a current explicit captain instruction, and is refused
+# as `deferred` on the two modes that never run no-mistakes. A deferred brief
+# records `Delivery contract: mode=no-mistakes validation=deferred`.
+# bin/fm-validation-decision.sh owns that decision's lifecycle.
 # The generated ship brief records the chosen mode as a fixed machine-readable
 # "Delivery contract: mode=<mode>" line. bin/fm-spawn.sh reads that line and refuses
 # to launch a ship task whose explicit --mode disagrees, so an adjusted brief and the
@@ -125,11 +134,14 @@ if [ -n "${FM_STATE_OVERRIDE:-}" ]; then
 else
   STATE="$FM_HOME/state"
 fi
+CONFIG="${FM_CONFIG_OVERRIDE:-$FM_HOME/config}"
 KIND=ship
 HERDR_LAB=0
 NO_PROJECTS=0
 MODE=
 MODE_SET=0
+VALIDATION=
+VALIDATION_SET=0
 POS=()
 want_value=
 for a in "$@"; do
@@ -139,6 +151,7 @@ for a in "$@"; do
     esac
     case "$want_value" in
       mode) MODE=$a; MODE_SET=1 ;;
+      validation) VALIDATION=$a; VALIDATION_SET=1 ;;
       *) echo "error: internal parser state for --$want_value" >&2; exit 1 ;;
     esac
     want_value=
@@ -151,6 +164,8 @@ for a in "$@"; do
     --no-projects) NO_PROJECTS=1 ;;
     --mode) want_value=mode ;;
     --mode=*) MODE=${a#--mode=}; MODE_SET=1 ;;
+    --validation) want_value=validation ;;
+    --validation=*) VALIDATION=${a#--validation=}; VALIDATION_SET=1 ;;
     # yolo never reaches the worker: it is firstmate's merge authority, not a
     # brief input. Refuse it loudly so it is never silently dropped here and then
     # believed to have been recorded.
@@ -174,8 +189,16 @@ if [ "$KIND" = ship ]; then
       exit 1 ;;
     *) echo "error: --mode must be one of no-mistakes, direct-PR, local-only (got '$MODE')" >&2; exit 1 ;;
   esac
+  if [ "$VALIDATION_SET" -eq 1 ] && [ -z "$VALIDATION" ]; then
+    echo "error: --validation must be auto or deferred" >&2
+    exit 1
+  fi
+  VALIDATION=$(fm_validation_resolve "$CONFIG" "$MODE" "$VALIDATION") || exit 1
 elif [ "$MODE_SET" -eq 1 ]; then
   echo "error: --mode applies only to ship briefs; a scout delivers a report and a secondmate charter is not a delivery contract" >&2
+  exit 1
+elif [ "$VALIDATION_SET" -eq 1 ]; then
+  echo "error: --validation applies only to ship briefs; a scout or secondmate charter has no validation decision" >&2
   exit 1
 fi
 ID=${POS[0]}
@@ -452,7 +475,7 @@ case "$MODE" in
     ;;
 esac
 RULE1=$(fm_ship_rule_one "$MODE" "$ID") || exit 1
-DOD=$(fm_dod_block "$MODE" "$ID") || exit 1
+DOD=$(fm_dod_block "$MODE" "$ID" "$VALIDATION") || exit 1
 
 cat > "$BRIEF" <<EOF
 You are a crewmate: an autonomous worker agent managed by firstmate. Work on your own; do not wait for a human.
@@ -521,4 +544,8 @@ Keep it proportionate: skip \`AGENTS.md\` edits for trivial tasks that produced 
 
 $DOD
 EOF
-echo "scaffolded: $BRIEF (ship, mode=$MODE; replace {TASK} and {FIRSTMATE_SPEC})"
+if [ "$VALIDATION" = deferred ]; then
+  echo "scaffolded: $BRIEF (ship, mode=$MODE, validation=deferred; replace {TASK} and {FIRSTMATE_SPEC})"
+else
+  echo "scaffolded: $BRIEF (ship, mode=$MODE; replace {TASK} and {FIRSTMATE_SPEC})"
+fi

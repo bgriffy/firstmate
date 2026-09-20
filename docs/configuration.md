@@ -229,6 +229,40 @@ With the flag absent the wedge timer spends no fold or current-state read for it
 The flag is a home-local supervision-noise preference and is not inherited by secondmate homes, which supervise their own crew and own that trade separately.
 [`architecture.md`](architecture.md) owns the wait-evidence contract and which records may take the ladder away; `bin/fm-watch.sh`'s `wedge_wait_evidence` owns the exact derivation and its fail-closed boundaries.
 
+## Automatic no-mistakes validation (config/no-mistakes-auto)
+
+The optional local, gitignored `config/no-mistakes-auto` holds one token answering whether a finished no-mistakes task validates automatically.
+The token is the file's whitespace-trimmed content.
+`on` always runs no-mistakes once a worker's changes are committed, and is also the default when the file is absent, so an unconfigured home behaves exactly as it did before the preference existed.
+`off` defers that choice: after the changes are made, Firstmate reviews the committed diff, recommends whether to run no-mistakes with its reasons, and asks the captain whether they agree.
+Any other value, or a path that is not a readable regular file, refuses every no-mistakes brief scaffold, promotion, and spawn from that home and names the accepted values; Firstmate never guesses which answer the captain meant.
+
+On Pi, the captain changes it with `/toggle-no-mistakes`, which shows the current value and offers exactly two choices: leave it as it is, or switch it to the other value.
+Dismissing the dialog changes nothing.
+On every other primary harness the captain asks Firstmate, which reads and writes the same preference through [`bin/fm-validation-decision.sh`](../bin/fm-validation-decision.sh) `mode get` and `mode set <on|off>`; that script is the only writer, and it replaces the file atomically so a failed write leaves the previous value in place.
+The slash command is Pi-only because it is a Pi extension command; no other supported primary harness loads `.pi/extensions/`, and none needs a counterpart because the preference and every lifecycle effect live in harness-neutral scripts.
+
+The preference is a captain-wide standing answer, so it is inherited into secondmate homes under the [`secondmate-provisioning`](../.agents/skills/secondmate-provisioning/SKILL.md) inherited-local-material contract, and `mode set` refuses inside a secondmate home, where a local value would be overwritten at the next convergence.
+After changing it in the primary home, run `bin/fm-config-push.sh` when live second mates should pick it up before their next convergence.
+A second mate's own deferred decisions reach the captain over the parent channel like any other captain call.
+
+The preference is read when a no-mistakes brief is scaffolded or a scout is promoted, and the resulting contract is recorded in the brief, so a task already dispatched keeps the contract it was given.
+Pass `--validation <auto|deferred>` to `bin/fm-brief.sh` or `bin/fm-promote.sh` to handle one task differently from the standing preference; `deferred` is refused for `direct-PR` and `local-only`, which never run no-mistakes.
+`bin/fm-spawn.sh` prints a notice when a brief's recorded contract disagrees with the home's current preference and continues.
+
+With the preference `off`, a no-mistakes task is delivered like this:
+
+1. The worker implements and commits, then stops without pushing, opening a PR, or starting no-mistakes, and reports the decision point.
+2. Firstmate makes the question durably the captain's, reviews the complete committed diff, and asks.
+3. A yes runs the ordinary no-mistakes pipeline on the same worker, unchanged.
+4. A no switches the task to the `direct-PR` path on the same worker: the project's normal local checks, a push of the task branch, and a PR, with no pipeline.
+
+Only the captain's own current words answer the question.
+Silence, elapsed time, a restart, a stale status event, standing `yolo` authority, and away or quiet mode never skip validation; an unanswered task waits, cleanup refuses it as unshipped work, and its recorded decision survives a worker relaunch.
+An answer covers exactly the commit Firstmate reviewed, so a task copy that moved afterwards is reviewed and asked about again.
+Merge authority, ask-user authority, security-sensitive escalation, unlanded-work protection, and no-mistakes branch custody are unchanged on every path.
+[`bin/fm-validation-decision.sh --help`](../bin/fm-validation-decision.sh) owns the decision's records, refusals, ordering, and retry rules, and the [`validation-decision` skill](../.agents/skills/validation-decision/SKILL.md) owns how Firstmate reviews, what it recommends, and how it asks.
+
 ## Gate defaults (.no-mistakes.yaml)
 
 The tracked `.no-mistakes.yaml` sets `test.evidence.store_in_repo: true` and pins `commands.lint` to `bin/fm-lint.sh`, the same owner CI invokes.

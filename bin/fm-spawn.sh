@@ -11,7 +11,16 @@
 #   the mode up. A ship spawn additionally reads the brief's recorded
 #   "Delivery contract: mode=<mode>" line and REFUSES a mismatch, so the worker's
 #   instructions and the recorded task delivery cannot drift apart; a brief
-#   scaffolded before that line existed warns once and launches on the flag. A
+#   scaffolded before that line existed warns once and launches on the flag.
+#   The brief's LAST contract line is its current one, because an answered
+#   validation decision and a scout promotion both append a superseding
+#   contract. A fresh spawn whose current contract says `validation=deferred`
+#   records `validation_decision=pending` in the task's meta, which is what
+#   makes the post-implementation run-or-skip choice a durable captain decision
+#   (bin/fm-validation-decision.sh owns that lifecycle; a relaunch preserves
+#   whatever it recorded). A brief whose contract disagrees with this home's
+#   config/no-mistakes-auto preference prints a loud one-line notice and the
+#   spawn continues, since a per-task captain instruction may explain it. A
 #   ship or scout spawn also refuses leftover `{TASK}` / `{FIRSTMATE_SPEC}`
 #   placeholders, an empty Task, an incomplete pair of Task subsections, or a
 #   `## Captain's intent` line opening with a Captain label or address.
@@ -2762,7 +2771,8 @@ delivery_rigor_rank() { # <mode> -> 3 (most rigor) .. 1 (least); 0 = not a task 
 # recorded task delivery differ, which is the exact drift this contract prevents.
 if [ "$KIND" = ship ]; then
   PROJ_NAME=$(basename "$PROJ_ABS")
-  BRIEF_MODE=$(sed -n 's/^Delivery contract: mode=\([^ ]*\).*$/\1/p' "$BRIEF" | head -n 1)
+  BRIEF_MODE=$(fm_validation_brief_mode "$BRIEF")
+  BRIEF_VALIDATION=$(fm_validation_brief_validation "$BRIEF")
   if [ -z "$BRIEF_MODE" ]; then
     echo "warning: $BRIEF records no delivery contract line (scaffolded before ship briefs recorded one); launching on the explicit --mode $MODE - confirm its definition of done matches" >&2
   elif [ "$BRIEF_MODE" != "$MODE" ]; then
@@ -2778,6 +2788,23 @@ if [ "$KIND" = ship ]; then
   if [ -n "$STANDING_MODE" ] && [ "$STANDING_MODE" != no-mistakes-prod-only ] &&
     [ "$(delivery_rigor_rank "$MODE")" -lt "$(delivery_rigor_rank "$STANDING_MODE")" ]; then
     echo "notice: $ID ships mode=$MODE while the standing posture for $PROJ_NAME is $STANDING_MODE - less rigor than the captain's standing posture; proceed only on a current explicit captain instruction or an intake judgment you can state" >&2
+  fi
+  # A deferred validation contract is meaningful only on the mode whose
+  # validation it defers; bin/fm-brief.sh never renders it elsewhere, so any
+  # other pairing is a hand-edited brief this spawn must not act on.
+  if [ "$BRIEF_VALIDATION" = deferred ] && [ "$MODE" != no-mistakes ]; then
+    echo "error: $BRIEF defers the no-mistakes validation decision, but this spawn is mode=$MODE, which never runs no-mistakes; re-scaffold the brief" >&2
+    exit 1
+  fi
+  # The preference is the captain's standing answer and the brief is this
+  # task's, so a disagreement is surfaced rather than refused: an explicit
+  # --validation override and a preference toggled after scaffolding both
+  # produce it, and only firstmate can tell which.
+  if [ "$RELAUNCH" -eq 0 ] && [ "$MODE" = no-mistakes ]; then
+    STANDING_VALIDATION=$(fm_validation_resolve "$CONFIG" "$MODE" '') || exit 1
+    if [ "$STANDING_VALIDATION" != "$BRIEF_VALIDATION" ]; then
+      echo "notice: $ID brief records validation=$BRIEF_VALIDATION while this home's config/$FM_VALIDATION_PREFERENCE_FILE resolves to validation=$STANDING_VALIDATION; proceed only on a current explicit captain instruction for this task, or re-scaffold the brief" >&2
+    fi
   fi
 fi
 
@@ -4445,6 +4472,12 @@ preserve_relaunch_meta() {
   echo "kind=$KIND"
   [ -z "$MODE" ] || echo "mode=$MODE"
   [ -z "$YOLO" ] || echo "yolo=$YOLO"
+  # Only a FRESH deferred ship spawn opens the decision. A relaunch inherits
+  # whatever bin/fm-validation-decision.sh last recorded through
+  # preserve_relaunch_meta, so an answered decision is never reset to pending.
+  if [ "$RELAUNCH" -eq 0 ] && [ "$KIND" = ship ] && [ "${BRIEF_VALIDATION:-auto}" = deferred ]; then
+    echo "validation_decision=pending"
+  fi
   echo "tasktmp=$TASK_TMP"
   echo "model=${MODEL:-default}"
   echo "effort=${EFFORT:-default}"
