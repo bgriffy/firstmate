@@ -1,0 +1,58 @@
+=== commit 359f863: edit bin/fm-env-lib.sh; fm-test-run.sh --list --changed --base HEAD
+tests/fm-check-unregister.test.sh
+tests/fm-pr-check-security.test.sh
+tests/fm-pr-merge.test.sh
+tests/fm-pr-reviewers.test.sh
+tests/fm-pr-state.test.sh
+tests/fm-review-diff.test.sh
+tests/fm-teardown.test.sh
+tests/fm-x-mode.test.sh
+tests/fm-dispatch-resolve.test.sh
+exit=0
+=== commit 22adafe: edit bin/fm-env-lib.sh; fm-test-run.sh --list --changed --base HEAD
+tests/fm-backlog-atomicity.test.sh
+tests/fm-bootstrap-network-parallel.test.sh
+tests/fm-bootstrap.test.sh
+tests/fm-fleet-sync.test.sh
+tests/fm-gate-refuse.test.sh
+tests/fm-gotmp.test.sh
+tests/fm-session-start.test.sh
+tests/fm-sessionstart-nudge.test.sh
+tests/fm-startup-network.test.sh
+tests/fm-tangle-guard.test.sh
+tests/fm-update.test.sh
+tests/fm-check-unregister.test.sh
+tests/fm-pr-check-security.test.sh
+tests/fm-pr-merge.test.sh
+tests/fm-pr-reviewers.test.sh
+tests/fm-pr-state.test.sh
+tests/fm-review-diff.test.sh
+tests/fm-teardown.test.sh
+tests/fm-x-mode.test.sh
+tests/fm-dispatch-resolve.test.sh
+exit=0
+=== session-bootstrap family at 22adafe
+tests/fm-backlog-atomicity.test.sh
+tests/fm-bootstrap-network-parallel.test.sh
+tests/fm-bootstrap.test.sh
+tests/fm-fleet-sync.test.sh
+tests/fm-gate-refuse.test.sh
+tests/fm-gotmp.test.sh
+tests/fm-session-start.test.sh
+tests/fm-sessionstart-nudge.test.sh
+tests/fm-startup-network.test.sh
+tests/fm-tangle-guard.test.sh
+tests/fm-update.test.sh
+=== adversarial: revert env-lib, edit bin/fm-x-lib.sh only (must not pull bootstrap via this mapping)
+tests/fm-check-unregister.test.sh
+tests/fm-pr-check-security.test.sh
+tests/fm-pr-merge.test.sh
+tests/fm-pr-reviewers.test.sh
+tests/fm-pr-state.test.sh
+tests/fm-review-diff.test.sh
+tests/fm-teardown.test.sh
+tests/fm-x-mode.test.sh
+exit=0
+=== coverage guard at 22adafe
+FM_TEST_COVERAGE ok total=218 parallel=24 parallel_max_ms=417163 parallel_imbalance_ms=2894 parallel_unhinted=0 serial=178 serial_shards=9 serial_unhinted=2 herdr=16
+exit=0
