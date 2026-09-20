@@ -1,0 +1,39 @@
+Independent live verification of /toggle-no-mistakes against a real Pi 0.86.1
+TUI session (tmux -L fm-toggle-verify, 220x50, FM_HOME pointed at an isolated
+scratch home). Reproduced independently in this test round rather than trusting
+the branch's own documented evidence in docs/verification/runtime-backends.md.
+
+1) Typing "/toggle-no-mistakes" offered the command in the palette:
+   toggle-no-mistakes  [p] Show whether Firstmate always runs no-mistakes, and leave it or switch it.
+
+2) Submitting it (preference unset -> reads as ON) rendered:
+   Automatic no-mistakes is ON - always run no-mistakes when a crewmate finishes
+   -> Leave it ON
+      Turn it OFF - ask me after the changes are made whether to run no-mistakes
+
+3) Selecting "Turn it OFF" (with FM_GATE_REFUSE_BYPASS=1, since this shell
+   otherwise carries the test-phase's own NO_MISTAKES_GATE marker, which the
+   real script correctly refuses under - confirmed separately, see below)
+   printed:
+   Automatic no-mistakes is now OFF: after a crewmate's changes are made,
+   Firstmate reviews the diff, recommends whether to run no-mistakes, and asks you.
+
+   config/no-mistakes-auto in the scratch home held exactly "off", mode 600,
+   with no staging file left beside it.
+
+4) Reopening the command showed the updated state:
+   Automatic no-mistakes is OFF - ask me after the changes are made whether to run no-mistakes
+   -> Leave it OFF
+      Turn it ON - always run no-mistakes when a crewmate finishes
+
+5) Selecting "Turn it ON" round-tripped the file back to "on".
+
+Separately, without FM_GATE_REFUSE_BYPASS=1 (this test phase's ambient shell,
+which carries NO_MISTAKES_GATE=1), selecting "Turn it OFF" correctly refused:
+   Error: Automatic no-mistakes stays ON; the change was not saved:
+   no-mistakes gate agent must not drive the fleet (NO_MISTAKES_GATE set)
+This is pre-existing, unrelated gate-agent fleet-protection (bin/fm-gate-refuse-lib.sh)
+firing as designed, not a defect in this change.
+
+Session torn down with `tmux -L fm-toggle-verify kill-server`; scratch home
+removed from /tmp afterward.
