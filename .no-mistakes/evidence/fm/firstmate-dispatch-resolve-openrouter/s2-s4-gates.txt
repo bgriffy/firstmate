@@ -1,0 +1,16 @@
+## S2: no provider, no key -> off, no network
+dispatch-resolve: off (TYPESAFE_API_KEY absent from the environment and /var/folders/_v/swc0g0h16tv33xhdv4n59rkh0000gn/T/tmp.DTW4g55Jlr/.env)
+exit=0 curl_calls=0
+
+## S3: direct path (no provider) with a dummy TYPESAFE_API_KEY -> still targets api.typesafe.ai
+dispatch-resolve: error (http 401 after 1000 ms: {"detail":{"error_type":"authentication_error","message":"Cannot authenticate with the server. Please check your API key and try again."}})
+dispatch-resolve:
+  status: error
+  reason: http 401 after 1000 ms: {"detail":{"error_type":"authentication_error","message":"Cannot authenticate with the server. Please check your API key and try again."}}
+exit=0
+-sS --max-time 5 -o /var/folders/_v/swc0g0h16tv33xhdv4n59rkh0000gn/T/tmp.CKbgqvD3zd -w %{http_code} -X POST https://api.typesafe.ai/v1/systemone -H Content-Type: application/json -H @/dev/fd/3 --data-binary @-
+
+## S4: provider=typesafeai (non-openrouter value) + dummy key -> direct endpoint
+dispatch-resolve: error (http 401 after 0 ms: {"detail":{"error_type":"authentication_error","message":"Cannot authenticate with the server. Please check your API key and try again."}})
+exit=0
+-sS --max-time 5 -o /var/folders/_v/swc0g0h16tv33xhdv4n59rkh0000gn/T/tmp.33gqU37sxJ -w %{http_code} -X POST https://api.typesafe.ai/v1/systemone -H Content-Type: application/json -H @/dev/fd/3 --data-binary @-

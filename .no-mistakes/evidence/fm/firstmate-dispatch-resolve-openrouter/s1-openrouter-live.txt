@@ -1,0 +1,13 @@
+## S1 live: TYPESAFE_API_PROVIDER=openrouter, no TYPESAFE_API_KEY, real Keychain key, real OpenRouter
+dispatch-resolve:
+  status: escalate
+  model: typesafe/jev-1.13-20260917   latency_ms: 0   tokens: 504/53
+  rule: rule_2 (The task is a trivial mechanical edit such as a rote rename,)   confidence: 1
+  probabilities: rule_1=0 rule_2=1 rule_3=0 default=0
+  reason: no rankable eligible candidate
+  note: rule matched
+  candidate: claude:haiku  provider=claude  -> eligible, unranked: provider claude unmeasured (unknown): disclosed uncertainty
+exit=0
+--- curl argv seen:
+-sS --max-time 5 -o /var/folders/_v/swc0g0h16tv33xhdv4n59rkh0000gn/T/tmp.qwhY4vyuoW -w %{http_code} -X POST https://openrouter.ai/api/v1/systemone -H Content-Type: application/json -H @/dev/fd/3 --data-binary @-
+--- key-like strings in curl env: 0
