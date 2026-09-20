@@ -150,8 +150,30 @@ cat "${QUOTA_AXI_FIXTURE:?}"
 SH
 chmod +x "$FAKEBIN/quota-axi"
 
+# Fake security: answers `find-generic-password -s <service> -w` for the
+# OpenRouter Keychain lookup only, records every call, and mirrors the real
+# tool's silent failure (empty stdout, non-zero exit) for an absent entry.
+cat > "$FAKEBIN/security" <<'SH'
+#!/usr/bin/env bash
+set -u
+printf '%s\n' "$*" >> "${SECURITY_CALLS:?}"
+service=''
+while [ $# -gt 0 ]; do
+  case "$1" in
+    -s) service=$2; shift 2 ;;
+    *) shift ;;
+  esac
+done
+if [ "$service" = "${FAKE_KEYCHAIN_SERVICE:-}" ] && [ -n "${FAKE_KEYCHAIN_VALUE:-}" ]; then
+  printf '%s' "$FAKE_KEYCHAIN_VALUE"
+  exit 0
+fi
+exit 44
+SH
+chmod +x "$FAKEBIN/security"
+
 RESPONSE="$TMP_ROOT/response.json"
-export FAKE_CURL_LOG="$LOG" FAKE_CURL_RESPONSE="$RESPONSE" QUOTA_AXI_CALLS="$LOG/quota-axi.calls" QUOTA_AXI_FIXTURE="$QUOTA" CHILD_ENV_LOG="$LOG/child-env"
+export FAKE_CURL_LOG="$LOG" FAKE_CURL_RESPONSE="$RESPONSE" QUOTA_AXI_CALLS="$LOG/quota-axi.calls" QUOTA_AXI_FIXTURE="$QUOTA" CHILD_ENV_LOG="$LOG/child-env" SECURITY_CALLS="$LOG/security.calls"
 
 reset_log() {
   rm -rf "$LOG"
@@ -180,7 +202,21 @@ run_without_curl() {
   printf -v "$__err" '%s' "$(cat "$TMP_ROOT/stderr")"
 }
 
+# run_without_security <exit-var> <out-var> <err-var> [args...]: no `security`
+# (or curl/quota-axi) on PATH at all, proving the OpenRouter path treats an
+# unavailable Keychain tool the same as an absent entry rather than erroring.
+run_without_security() {
+  local __exit=$1 __out=$2 __err=$3 _out _code
+  shift 3
+  _out=$(PATH="$NO_CURL_BIN" FM_HOME="$HOME_DIR" "$TOOL" "$@" 2> "$TMP_ROOT/stderr")
+  _code=$?
+  printf -v "$__exit" '%s' "$_code"
+  printf -v "$__out" '%s' "$_out"
+  printf -v "$__err" '%s' "$(cat "$TMP_ROOT/stderr")"
+}
+
 KEY='test-key-9f1c2d3e-never-on-argv'
+OR_KEY='test-openrouter-key-7f3a5c-never-on-argv'
 code='' out='' err=''
 
 # --- absent key: off, silent on stdout, no network, no quota read -----------
@@ -245,6 +281,77 @@ assert_not_contains "$body" 'SECRET-WHY-TEXT' "why text never leaves the machine
 assert_not_contains "$body" 'spendPriority' "quota never leaves the machine"
 assert_not_contains "$body" 'cursor-grok' "use profiles never leave the machine"
 pass "clear: one rule Choice request, key on the fd header only, spendPriority argmax over every candidate"
+
+# --- OpenRouter provider: opt-in via TYPESAFE_API_PROVIDER, key from Keychain --
+reset_log
+write_response "$RESPONSE" rule_4 0.9
+FAKE_KEYCHAIN_SERVICE=openrouter-api-key FAKE_KEYCHAIN_VALUE=$OR_KEY \
+  TYPESAFE_API_PROVIDER=typesafeai TYPESAFE_API_KEY=$KEY run code out err "$BRIEF" --project pager
+expect_code 0 "$code" "a provider value other than openrouter exits 0"
+assert_contains "$out" '  status: clear' "a provider value other than openrouter still resolves"
+assert_contains "$(cat "$LOG/argv")" 'https://api.typesafe.ai/v1/systemone' "any provider value other than openrouter keeps the direct typesafe.ai endpoint"
+assert_absent "$LOG/security.calls" "the direct path never consults the Keychain"
+
+reset_log
+TYPESAFE_API_PROVIDER=openrouter run code out err "$BRIEF" --project pager
+expect_code 0 "$code" "openrouter with no Keychain entry exits 0"
+assert_equals '' "$out" "openrouter with no Keychain entry prints nothing on stdout"
+assert_contains "$err" 'dispatch-resolve: off (openrouter-api-key absent from the macOS Keychain)' "openrouter with no Keychain entry explains itself on stderr"
+assert_equals 'find-generic-password -s openrouter-api-key -w' "$(cat "$LOG/security.calls")" "the Keychain is consulted with the exact service name"
+assert_absent "$LOG/argv" "openrouter with no Keychain entry never calls curl"
+assert_absent "$LOG/quota-axi.calls" "openrouter with no Keychain entry never reads quota-axi"
+
+reset_log
+TYPESAFE_API_PROVIDER=openrouter TYPESAFE_API_KEY=$KEY run code out err "$BRIEF" --project pager
+assert_contains "$err" 'dispatch-resolve: off (openrouter-api-key absent from the macOS Keychain)' "a direct TYPESAFE_API_KEY does not bypass the OpenRouter Keychain gate"
+assert_absent "$LOG/argv" "no fallback call is made to either endpoint"
+
+reset_log
+TYPESAFE_API_PROVIDER=openrouter run_without_security code out err "$BRIEF" --project pager
+expect_code 0 "$code" "openrouter with no security tool on PATH exits 0"
+assert_contains "$err" 'dispatch-resolve: off (openrouter-api-key absent from the macOS Keychain)' "a missing security tool reads the same as an absent Keychain entry"
+
+reset_log
+FAKE_KEYCHAIN_SERVICE=openrouter-api-key FAKE_KEYCHAIN_VALUE=$OR_KEY \
+  TYPESAFE_API_PROVIDER=openrouter run code out err "$BRIEF" --project pager
+expect_code 0 "$code" "openrouter with a Keychain key exits 0"
+assert_contains "$out" '  status: clear' "the OpenRouter path resolves the same as the direct path"
+assert_contains "$out" "  profile: --harness 'cursor' --model 'cursor-grok-4.6-medium'" "the OpenRouter path shares argmax resolution with the direct path"
+argv=$(cat "$LOG/argv")
+assert_contains "$argv" 'https://openrouter.ai/api/v1/systemone' "openrouter selection changes only the base URL"
+assert_not_contains "$argv" 'api.typesafe.ai' "the direct endpoint is not also called"
+assert_not_contains "$argv" "$OR_KEY" "the OpenRouter key never appears on curl argv"
+assert_equals "Authorization: Bearer $OR_KEY" "$(cat "$LOG/header")" "curl receives the OpenRouter key as the bearer header on fd 3"
+assert_equals $'curl:clean\nquota-axi:clean' "$(cat "$LOG/child-env")" "the OpenRouter key is absent from every child environment"
+body=$(cat "$LOG/body")
+assert_equals 'jev-latest' "$(jq -r .model <<<"$body")" "the OpenRouter request uses the same jev-latest model value"
+assert_equals 'pager' "$(jq -r .state.task.project <<<"$body")" "the OpenRouter request carries the same project field"
+assert_equals '["default","rule_1","rule_2","rule_3","rule_4"]' "$(jq -c '.questions.rule.criteria | keys' <<<"$body")" "the OpenRouter request builds the identical rule Choice question"
+
+reset_log
+FAKE_KEYCHAIN_SERVICE=openrouter-api-key FAKE_KEYCHAIN_VALUE=$OR_KEY \
+  TYPESAFE_API_PROVIDER=openrouter TYPESAFE_API_KEY=$KEY run code out err "$BRIEF" --project pager
+assert_equals "Authorization: Bearer $OR_KEY" "$(cat "$LOG/header")" "an ambient direct TYPESAFE_API_KEY never substitutes for the Keychain key"
+assert_not_contains "$(cat "$LOG/header")" "$KEY" "the direct key text never reaches the OpenRouter header"
+
+printf '%s\n' 'TYPESAFE_API_PROVIDER=openrouter' > "$HOME_DIR/.env"
+reset_log
+FAKE_KEYCHAIN_SERVICE=openrouter-api-key FAKE_KEYCHAIN_VALUE=$OR_KEY run code out err "$BRIEF" --project pager
+assert_contains "$(cat "$LOG/argv")" 'https://openrouter.ai/api/v1/systemone' ".env TYPESAFE_API_PROVIDER=openrouter activates the OpenRouter path"
+reset_log
+FAKE_KEYCHAIN_SERVICE=openrouter-api-key FAKE_KEYCHAIN_VALUE=$OR_KEY \
+  TYPESAFE_API_PROVIDER=notopenrouter TYPESAFE_API_KEY=$KEY run code out err "$BRIEF" --project pager
+assert_contains "$(cat "$LOG/argv")" 'https://api.typesafe.ai/v1/systemone' "an environment provider value wins over the .env line"
+rm -f "$HOME_DIR/.env"
+
+reset_log
+printf '%s\n' '{"model":"typesafe/jev-1.13","answers":{}}' > "$RESPONSE"
+FAKE_KEYCHAIN_SERVICE=openrouter-api-key FAKE_KEYCHAIN_VALUE=$OR_KEY \
+  TYPESAFE_API_PROVIDER=openrouter run code out err "$BRIEF" --project pager
+assert_contains "$out" '  status: error' "a malformed OpenRouter response is an error outcome"
+assert_contains "$out" '  reason: response is not a rule Choice answer' "OpenRouter responses are validated by the same shared contract as the direct path"
+
+pass "OpenRouter provider: opt-in, Keychain-only key, shared request/response/resolution contract with the direct path"
 
 # --- rules are snapshotted and line output is injection-safe -------------------
 MUTATED_RULES="$TMP_ROOT/mutated-rules.json"

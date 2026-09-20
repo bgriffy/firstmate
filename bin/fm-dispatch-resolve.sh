@@ -13,6 +13,22 @@
 #   The key lives in one shell variable and reaches curl as a header read from
 #   a file descriptor, never on argv; nothing logs or writes it.
 #
+# OpenRouter provider (additional opt-in path, off by default): set
+#   TYPESAFE_API_PROVIDER=openrouter the same way TYPESAFE_API_KEY is read
+#   (environment first, else a TYPESAFE_API_PROVIDER= line in $FM_HOME/.env).
+#   Absent, or any other value, leaves the direct typesafe.ai path above
+#   byte-for-byte unchanged. When selected, the bearer key comes only from
+#   the macOS Keychain service "openrouter-api-key"
+#   (`security find-generic-password -s openrouter-api-key -w`), never from
+#   .env or the environment; a missing or empty Keychain entry is "off" the
+#   same way an absent TYPESAFE_API_KEY is, with the same security discipline
+#   (one unexported shell variable, header read from a file descriptor, never
+#   logged). OpenRouter proxies typesafe.ai's own systemone API unchanged at
+#   https://openrouter.ai/api/v1/systemone, with the same jev-latest model
+#   value and an identical request/response shape, so only the base URL and
+#   the key source branch on this setting; request construction, response
+#   validation, and everything after are shared verbatim by both providers.
+#
 # What it does when on with at least one rule: one POST to
 #   https://api.typesafe.ai/v1/systemone with the project name and the whole brief as
 #   state and ONE Choice question whose
@@ -44,7 +60,9 @@
 #   actionable, never selected around.
 #
 # Environment:
-#   TYPESAFE_API_KEY is the only resolver-specific environment setting.
+#   TYPESAFE_API_KEY and TYPESAFE_API_PROVIDER are the only resolver-specific
+#   environment settings; the OpenRouter bearer key itself is never an
+#   environment or .env setting, only the macOS Keychain service above.
 #
 # Authority: this tool never replaces firstmate's judgment, quota-array-dispatch,
 #   the captain-approval gate, or fm-spawn.sh validation; it publishes one
@@ -72,6 +90,8 @@ CONFIG="${FM_CONFIG_OVERRIDE:-$FM_HOME/config}"
 CONFIDENCE_FLOOR=0.6
 TS_MODEL=jev-latest
 TS_BASE=https://api.typesafe.ai
+OPENROUTER_BASE=https://openrouter.ai/api
+OPENROUTER_KEYCHAIN_SERVICE=openrouter-api-key
 TS_TIMEOUT=5
 DEFAULT_WHEN="No listed rule applies to this task."
 
@@ -98,13 +118,35 @@ while [ $# -gt 0 ]; do
   esac
 done
 
-# ---- opt-in gate ---------------------------------------------------------------
-if [ -z "$TYPESAFE_API_KEY_PRIVATE" ]; then
-  TYPESAFE_API_KEY_PRIVATE=$(fmx_env_get TYPESAFE_API_KEY "$FM_HOME/.env")
+# ---- provider selection and opt-in gate -----------------------------------------
+TYPESAFE_API_PROVIDER=${TYPESAFE_API_PROVIDER:-}
+if [ -z "$TYPESAFE_API_PROVIDER" ]; then
+  TYPESAFE_API_PROVIDER=$(fmx_env_get TYPESAFE_API_PROVIDER "$FM_HOME/.env")
 fi
-if [ -z "$TYPESAFE_API_KEY_PRIVATE" ]; then
-  echo "dispatch-resolve: off (TYPESAFE_API_KEY absent from the environment and $FM_HOME/.env)" >&2
-  exit 0
+
+if [ "$TYPESAFE_API_PROVIDER" = openrouter ]; then
+  TS_BASE=$OPENROUTER_BASE
+  OPENROUTER_KEY_PRIVATE=''
+  if command -v security >/dev/null 2>&1; then
+    OPENROUTER_KEY_PRIVATE=$(security find-generic-password -s "$OPENROUTER_KEYCHAIN_SERVICE" -w 2>/dev/null) || OPENROUTER_KEY_PRIVATE=''
+  fi
+  if [ -z "$OPENROUTER_KEY_PRIVATE" ]; then
+    echo "dispatch-resolve: off ($OPENROUTER_KEYCHAIN_SERVICE absent from the macOS Keychain)" >&2
+    exit 0
+  fi
+  # From here TYPESAFE_API_KEY_PRIVATE carries the OpenRouter bearer key
+  # instead of a direct typesafe.ai key; every downstream use of it (the
+  # curl header, the trap, never logging it) is unchanged.
+  TYPESAFE_API_KEY_PRIVATE=$OPENROUTER_KEY_PRIVATE
+  unset OPENROUTER_KEY_PRIVATE
+else
+  if [ -z "$TYPESAFE_API_KEY_PRIVATE" ]; then
+    TYPESAFE_API_KEY_PRIVATE=$(fmx_env_get TYPESAFE_API_KEY "$FM_HOME/.env")
+  fi
+  if [ -z "$TYPESAFE_API_KEY_PRIVATE" ]; then
+    echo "dispatch-resolve: off (TYPESAFE_API_KEY absent from the environment and $FM_HOME/.env)" >&2
+    exit 0
+  fi
 fi
 
 # ---- inputs --------------------------------------------------------------------
