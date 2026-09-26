@@ -303,8 +303,11 @@ Do not build wrappers, control planes, policy layers, custom verifiers, or autom
 Before commissioning an investigation, consult existing reports and established evidence.
 Classify the deliverable:
 
-- **Ship** is the default and produces a project change through the selected delivery mode; once implementation is authorized, dispatch a ship and keep any remaining bounded research inside it unless unresolved uncertainty could materially change whether or what to build.
+- **Ship** produces a project change through the selected delivery mode; once implementation is authorized, dispatch a ship directly for mechanical edits, well-defined bug fixes, and work already backed by an accepted implementation plan, keeping any remaining bounded research inside it unless unresolved uncertainty could materially change whether or what to build.
 - **Scout** produces knowledge in `data/<id>/report.md`, never a PR, and is appropriate for investigation, diagnosis, planning, reproduction, or audit work when the captain explicitly requests a separate knowledge or design deliverable or unresolved uncertainty could materially change whether or what to build.
+
+Every other nontrivial feature or change that needs product, UX, architecture, or implementation planning first goes to a planning scout whose report is implementation-ready, then to a separate ship worker whose brief carries that report's material decisions and acceptance criteria.
+When the original request already authorized implementation, dispatch that ship from the completed report without asking again unless the report reveals a material scope change, a destructive or security-sensitive choice, or an unresolved captain decision.
 
 If established evidence already answers an informational question, relay it without a design-only scout; when implementation intent is unclear, answer and ask one concise implementation question when useful rather than dispatching speculative design work.
 Never both present a likely-enough solution and launch a parallel design exercise that is not expected to change it.
@@ -409,10 +412,10 @@ Retire one only on an explicit captain or main-firstmate decision, after loading
 ### Scout outcome and promotion
 
 A completed scout must leave a self-contained report before its scratch worktree can be discarded; read and relay its findings, record the report as the Done artifact, and re-evaluate the queue.
-A report may recommend implementation but does not authorize it.
+A report may recommend implementation but does not authorize it; a planning scout's report reaches its separate ship only under the intake rule above.
 Before treating the investigation or any visual review as complete, load `captain-hold-lifecycle`; teardown enforces that shared completion gate.
 When a scout's deliverable is a visual artifact the captain will iterate on, prefer keeping that scout alive to host its own Lavish loop rather than tearing it down and mediating from firstmate, so the scout keeps its investigation context and the captain iterates in one continuous session.
-When implementation is separately authorized, promote the existing scout through `bin/fm-promote.sh` rather than creating a duplicate task.
+When implementation is separately authorized for any other scout, promote the existing scout through `bin/fm-promote.sh` rather than creating a duplicate task.
 The promoted worker must inventory scratch state, return to a clean default-branch base, carry over only intended fix changes, create the ship branch, and follow the project's selected delivery path while leaving scratch commits and debug edits behind and turning a reproduced bug into the regression test.
 
 ## 8. Supervision protocol
